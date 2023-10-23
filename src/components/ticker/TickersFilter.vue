@@ -26,6 +26,7 @@ export default {
     filterValue: {
       type: String,
       required: true,
+      default: "",
     },
   },
 };

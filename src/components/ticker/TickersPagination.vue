@@ -20,19 +20,21 @@
 <script>
 export default {
   name: "TickersPagination",
-  emits: {
-    prevPageRequested: null,
+  emits: { 
+    prevPageRequested: null, 
     nextPageRequested: null,
   },
   props: {
+    hasNextPage: {
+      type: Boolean, 
+      required: true,
+      default: false,
+    },
     currentPage: {
       type: Number,
-      required: true,
-    },
-    hasNextPage: {
-      type: Boolean,
-      required: true,
-    },
+      reqired: true,
+      default: 1,
+    }
   },
 };
 </script>

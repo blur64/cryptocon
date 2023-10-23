@@ -1,7 +1,7 @@
-// const portMessagesTypes = {
-//   SOCKET_INIT: 'SOCKET_INIT',
-
-// };
+const portMessagesTypes = {
+  SOCKET_INIT: 'SOCKET_INIT',
+  SOCKET_MESSAGE: 'SOCKET_MESSAGE',
+};
 
 let socket = null;
 const ports = [];
@@ -11,9 +11,9 @@ function socketMessageHandler(message) {
 }
 
 function portMessageHandler(message) {
-  if (message.WSUrl) {
+  if (message.type === portMessagesTypes.SOCKET_INIT) {
     if (!socket) {
-      socket = new WebSocket(message.WSUrl);
+      socket = new WebSocket(message.text);
     }
   }
 
@@ -22,8 +22,8 @@ function portMessageHandler(message) {
       socketMessageHandler(JSON.parse(e.data));
   }
 
-  if (message.WSMessage) {
-    const stringifiedMessage = JSON.stringify(message.WSMessage);
+  if (message.type === portMessagesTypes.SOCKET_MESSAGE) {
+    const stringifiedMessage = JSON.stringify(message.text);
 
     if (socket.readyState === WebSocket.OPEN) {
       socket.send(stringifiedMessage);

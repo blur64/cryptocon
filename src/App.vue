@@ -25,7 +25,7 @@
 
       <TickersList
         v-if="tickers.length"
-        :tickers="paginatedTickers"
+        :tickers="finalTickers"
         :activeTicker="activeTicker"
         @tickerSelected="activateTicker"
         @tickerRemovalRequested="removeTicker"
@@ -51,16 +51,26 @@ import TickersFilter from "./components/ticker/TickersFilter.vue";
 import TickersPagination from "./components/ticker/TickersPagination";
 
 import {
-  subscribeTickerToUpdate,
-  unsubscribeTickerFromUpdate,
-  loadCoinsNames,
-} from "./api.js";
+  getCoinsNames,
+  subscribeToTickersUpdate,
+  getTickers,
+  setTickers,
+  setTickersViewOptions,
+  getTickersVeiwOptions,
+} from "./api";
+import TickersUpdatesManager from "./models/TickersUpdatesManager.js";
+import Ticker from "./models/Ticker.js";
+import { filterTickers } from "./services/ticker.js";
 
-import {
-  subscribeToStorageUpdate,
-  getTickersFromStorage,
-  setTickersToStorage,
-} from "./storage.js";
+const API = {
+  getCoinsNames,
+  subscribeToTickersUpdate,
+  getTickers,
+  setTickers,
+  setTickersViewOptions,
+  getTickersVeiwOptions,
+};
+const TickerService = { filterTickers };
 
 export default {
   name: "App",
@@ -76,9 +86,9 @@ export default {
   data() {
     return {
       tickers: [],
+
       activeTicker: null,
       coinsNames: [],
-      hints: [],
 
       filterValue: "",
       currentPage: 1,
@@ -104,12 +114,10 @@ export default {
     },
 
     filteredTickers() {
-      return this.tickers.filter((ticker) =>
-        ticker.name.includes(this.filterValue.toUpperCase())
-      );
+      return TickerService.filterTickers(this.tickers, this.filterValue);
     },
 
-    paginatedTickers() {
+    finalTickers() {
       return this.filteredTickers.slice(
         this.firstPaginatedTikerIndex,
         this.lastPaginatedTikerIndex
@@ -135,7 +143,7 @@ export default {
       );
     },
 
-    pageStateOptions() {
+    tickersViewOptions() {
       return {
         filter: this.filterValue,
         page: this.currentPage,
@@ -152,25 +160,19 @@ export default {
         return;
       }
 
-      const tickerNameInUpperCase = tickerName.toUpperCase();
-      const newTicker = {
-        name: tickerNameInUpperCase,
-        price: NaN,
-        isValid: true,
-      };
-
+      const newTicker = new Ticker(tickerName.toUpperCase(), NaN, true);
       this.tickers = [...this.tickers, newTicker];
 
-      subscribeTickerToUpdate(newTicker.name, (updatedTickerData) => {
+      TickersUpdatesManager.subscribe(newTicker.name, (updatedTickerData) => {
         const { newPrice, isValid } = updatedTickerData;
-        this.updateTicker(newTicker.name, newPrice, isValid);
+        this.updateTicker(newTicker.name, newPrice ? newPrice : NaN, isValid);
       });
 
       this.filterValue = "";
       this.hasTickerAdded = [true];
     },
 
-    getTicker(tickerName) {
+    findTicker(tickerName) {
       return this.tickers.find((ticker) => ticker.name === tickerName);
     },
 
@@ -179,7 +181,7 @@ export default {
     },
 
     checkTickerAlreadyInTickers(tickerName) {
-      this.hasThisTicker = Boolean(this.getTicker(tickerName));
+      this.hasThisTicker = Boolean(this.findTicker(tickerName));
     },
 
     validateTicker(tickerName) {
@@ -193,9 +195,9 @@ export default {
     },
 
     updateTicker(tickerName, newPrice, isValid) {
-      const currentTicker = this.getTicker(tickerName);
-      currentTicker.price = newPrice;
-      currentTicker.isValid = isValid;
+      const ticker = this.findTicker(tickerName);
+      ticker.price = newPrice;
+      ticker.isValid = isValid;
     },
 
     removeTicker(tickerToRemove) {
@@ -203,13 +205,17 @@ export default {
         this.activeTicker = null;
       }
 
-      unsubscribeTickerFromUpdate(tickerToRemove.name);
+      TickersUpdatesManager.unsubscribe(
+        tickerToRemove.name,
+        tickerToRemove.isValid
+      );
+
       this.tickers = this.tickers.filter((ticker) => ticker !== tickerToRemove);
     },
 
     updateTickers(newTickersNames) {
       newTickersNames.forEach((newTickerName) => {
-        if (!this.getTicker(newTickerName)) {
+        if (!this.findTicker(newTickerName)) {
           this.addNewTicker(newTickerName);
         }
       });
@@ -226,12 +232,12 @@ export default {
   },
 
   created() {
-    subscribeToStorageUpdate(this.updateTickers);
-    loadCoinsNames().then((coinsNames) => {
+    API.subscribeToTickersUpdate(this.updateTickers);
+    API.getCoinsNames().then((coinsNames) => {
       this.coinsNames = coinsNames;
       this.haveCoinsNamesLoaded = true;
 
-      const storageTickersNames = getTickersFromStorage();
+      const storageTickersNames = API.getTickers();
 
       if (storageTickersNames) {
         storageTickersNames.forEach((tickerName) =>
@@ -239,16 +245,14 @@ export default {
         );
       }
 
-      const windowData = Object.fromEntries(
-        new URL(window.location).searchParams.entries()
-      );
+      const tickersViewOptions = API.getTickersVeiwOptions();
 
-      if (windowData.filter) {
-        this.filterValue = windowData.filter;
+      if (tickersViewOptions.filter) {
+        this.filterValue = tickersViewOptions.filter;
       }
 
-      if (windowData.page) {
-        this.currentPage = windowData.page;
+      if (tickersViewOptions.page) {
+        this.currentPage = +tickersViewOptions.page;
       }
     });
   },
@@ -266,25 +270,17 @@ export default {
     },
 
     tickers(newTickers) {
-      setTickersToStorage(newTickers.map((t) => t.name));
+      API.setTickers(newTickers.map((t) => t.name));
     },
 
-    paginatedTickers() {
-      if (this.paginatedTickers.length === 0 && this.currentPage > 1) {
+    finalTickers() {
+      if (this.finalTickers.length === 0 && this.currentPage > 1) {
         this.currentPage -= 1;
       }
     },
 
-    inputTickerName() {
-      this.showHints();
-    },
-
-    pageStateOptions(value) {
-      window.history.pushState(
-        null,
-        document.title,
-        `${window.location.pathname}?filter=${value.filter}&page=${value.page}`
-      );
+    tickersViewOptions(value) {
+      API.setTickersViewOptions(value);
     },
 
     filterValue() {
